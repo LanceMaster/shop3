@@ -1,52 +1,68 @@
+# 워클 플로우 이름 Action에 표시되는 이름
 name: Docker Deploy to EC2
 
+# 실행 조건. main 브랜치에 push 발생시 jobs 실행
 on:
   push:
     branches:
       - main
 
+# 실행할 기능 설정	  
 jobs:
   deploy:
-    name: Deploy to EC2 with Docker
-    runs-on: ubuntu-latest
+    name: Deploy to EC2 with Docker # Job의 이름
+    runs-on: ubuntu-latest # 배포 서버의 실행 환경. 우분트 최신버전 
 
     steps:
-    - name: Checkout source code
-      uses: actions/checkout@v3
+    - name: Checkout source code 
+      uses: actions/checkout@v4 # 최신 버전 사용
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
+      uses: docker/setup-buildx-action@v3 # 최신 버전 사용
 
     - name: Build Docker image
-      run: docker build -t gdj90/shop3:${{ github.run_number }} .
+      run: docker build -t gdj90/shop3:${{ github.run_number }} . # shop3를 도커이미지로 생성
 
     - name: Save Docker image as tar
       run: |
-        docker save gdj90/shop3:${{ github.run_number }} -o shop3.tar
-        chmod 644 shop3.tar
+        docker save gdj90/shop3:${{ github.run_number }} -o shop3.tar # 이미지를 압축파일 생성
+        chmod 644 shop3.tar # 파일권한에 읽기 권한 부여         
 
     - name: Copy image tar to EC2
-      uses: appleboy/scp-action@v0.1.7
+      uses: appleboy/scp-action@v0.1.7 # SSH SCP 프로토콜을 이용하여 전송
       with:
         host: ${{ secrets.EC2_HOST }}
         username: ${{ secrets.EC2_USER }}
         key: ${{ secrets.EC2_KEY }}
         source: "./shop3.tar"
         target: "/home/ubuntu"
-        overwrite: true
-        strip_components: 0
+        overwrite: true # 파일이 존재하면 덮어쓰기 가능
+        strip_components: 0 # 경로 유지 필요 없어
 
-    - name: Run Docker container on EC2
-      uses: appleboy/ssh-action@v1.0.0
+    - name: Run Docker container on EC2 # EC2 서버에서 도커 컨테이너 생성
+      uses: appleboy/ssh-action@v1.0.3 # 최신 버전 사용
       with:
         host: ${{ secrets.EC2_HOST }}
         username: ${{ secrets.EC2_USER }}
         key: ${{ secrets.EC2_KEY }}
         script: |
+          # 기존 컨테이너 중지 및 제거
           docker stop shop3 || true
           docker rm shop3 || true
-          docker image rm gdj90/shop3:${{ github.run_number }} || true
+          
+          # 새 이미지 로드
           docker load -i shop3.tar
+          
+          # 업로드 디렉토리 생성 (존재하지 않을 경우)
+          mkdir -p /home/ubuntu/upload
+          
+          # 새 컨테이너 실행
           docker run -d --name shop3 -p 8080:8080 \
             -v /home/ubuntu/upload:/app/upload \
             gdj90/shop3:${{ github.run_number }}
+          
+          # 사용하지 않는 이미지 정리 (옵션)
+          docker image prune -f
+          
+          # tar 파일 정리
+          rm -f shop3.tar
